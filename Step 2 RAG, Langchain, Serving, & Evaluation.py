@@ -26,8 +26,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install databricks-agents 'mlflow>=2.13'
-# MAGIC %pip install lxml==4.9.3 langchain==0.1.5 databricks-vectorsearch==0.22 cloudpickle==2.2.1 databricks-sdk==0.18.0 cloudpickle==2.2.1 pydantic==2.5.2
+# MAGIC %pip install -U -qqqq databricks-agents mlflow mlflow-skinny databricks-vectorsearch langchain==0.2.11 langchain_core==0.2.23 langchain_community==0.2.10
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -61,6 +60,23 @@ guardrail_example = """
 Question: What is Databricks?
 Expected Response: Yes
 """
+
+instructions_to_reviewer = f"""## Instructions for Testing the {finalchatBotModelName}'s Initial Proof of Concept (PoC)
+
+Your inputs are invaluable for the development team. By providing detailed feedback and corrections, you help us fix issues and improve the overall quality of the application. We rely on your expertise to identify any gaps or areas needing enhancement.
+
+1. **Variety of Questions**:
+   - Please try a wide range of questions that you anticipate the end users of the application will ask. This helps us ensure the application can handle the expected queries effectively.
+
+2. **Feedback on Answers**:
+   - After asking each question, use the feedback widgets provided to review the answer given by the application.
+   - If you think the answer is incorrect or could be improved, please use "Edit Answer" to correct it. Your corrections will enable our team to refine the application's accuracy.
+
+3. **Review of Returned Documents**:
+   - Carefully review each document that the system returns in response to your question.
+   - Use the thumbs up/down feature to indicate whether the document was relevant to the question asked. A thumbs up signifies relevance, while a thumbs down indicates the document was not useful.
+
+Thank you for your time and effort in testing {finalchatBotModelName}. Your contributions are essential to delivering a high-quality product to our end users."""
 
 # COMMAND ----------
 
@@ -97,6 +113,10 @@ chain = (
   | StrOutputParser()
 )
 print(chain.invoke({"question": "What is Spark?"}))
+
+# COMMAND ----------
+
+full_chain.invoke(dialog)
 
 # COMMAND ----------
 
@@ -501,6 +521,43 @@ display_chat(dialog["messages"], model_response)
 
 # MAGIC %md
 # MAGIC ## 10-Evaluation
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Deploy to Review App
+
+# COMMAND ----------
+
+from databricks import agents
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.serving import EndpointStateReady, EndpointStateConfigUpdate
+from databricks.sdk.errors import NotFound, ResourceDoesNotExist
+
+w = WorkspaceClient()
+
+UC_MODEL_NAME = f"{catalog}.{dbName}.{finalchatBotModelName}"
+# Deploy to enable the Review APP and create an API endpoint
+deployment_info = agents.deploy(model_name=UC_MODEL_NAME, model_version=model_info.registered_model_version)
+
+browser_url = mlflow.utils.databricks_utils.get_browser_hostname()
+print(f"\n\nView deployment status: https://{browser_url}/ml/endpoints/{deployment_info.endpoint_name}")
+
+# Add the user-facing instructions to the Review App
+agents.set_review_instructions(UC_MODEL_NAME, instructions_to_reviewer)
+
+# Wait for the Review App to be ready
+print("\nWaiting for endpoint to deploy.  This can take 15 - 20 minutes.", end="")
+while w.serving_endpoints.get(deployment_info.endpoint_name).state.ready == EndpointStateReady.NOT_READY or w.serving_endpoints.get(deployment_info.endpoint_name).state.config_update == EndpointStateConfigUpdate.IN_PROGRESS:
+    print(".", end="")
+    time.sleep(30)
+
+print(f"\n\nReview App: {deployment_info.review_app_url}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Evaluation Analysis
 
 # COMMAND ----------
 
