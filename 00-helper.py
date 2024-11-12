@@ -1,4 +1,8 @@
 # Databricks notebook source
+# MAGIC %run ./config
+
+# COMMAND ----------
+
 import time
 import pandas as pd
 
